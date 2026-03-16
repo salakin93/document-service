@@ -6,6 +6,7 @@ import edu.usip.document.dto.records.DocumentDownload;
 import edu.usip.document.repo.DocumentRepository;
 import edu.usip.document.repo.DocumentSpecification;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -13,17 +14,21 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final FileStorageService storageService;
+    private final DocumentIndexingJob indexingJob;
 
     @Transactional
     public Document upload(DocumentUploadRequest request, MultipartFile file) throws IOException {
@@ -57,7 +62,18 @@ public class DocumentService {
                 .active(true)
                 .build();
 
-        return documentRepository.save(document);
+        Document saved = documentRepository.save(document);
+
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        indexingJob.indexAsync(saved, storagePath);
+                    }
+                }
+        );
+
+        return saved;
     }
 
     @Transactional(readOnly = true)
