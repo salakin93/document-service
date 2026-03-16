@@ -3,8 +3,10 @@ package edu.usip.document.api;
 import edu.usip.document.api.dto.request.DocumentUploadRequest;
 import edu.usip.document.api.dto.response.DocumentResponse;
 import edu.usip.document.api.dto.response.DocumentSearchResponse;
+import edu.usip.document.api.mapper.DocumentResponseMapper;
 import edu.usip.document.domain.Document;
 import edu.usip.document.dto.records.DocumentDownload;
+import edu.usip.document.service.DocumentSearchService;
 import edu.usip.document.service.DocumentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +14,6 @@ import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -28,6 +29,8 @@ import java.io.IOException;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final DocumentSearchService documentSearchService;
+    private final DocumentResponseMapper mapper;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
@@ -36,7 +39,7 @@ public class DocumentController {
             @RequestParam("file") MultipartFile file
     ) throws IOException {
         Document document = documentService.upload(request, file);
-        return ResponseEntity.ok(toResponse(document));
+        return ResponseEntity.ok(mapper.toResponse(document));
     }
 
     @GetMapping("/search")
@@ -47,36 +50,24 @@ public class DocumentController {
             @RequestParam(defaultValue = "10") int size
     ) {
         Pageable pageable = PageRequest.of(page, size);
-        return ResponseEntity.ok(documentService.searchFullText(q, pageable));
+        return ResponseEntity.ok(documentSearchService.searchFullText(q, pageable));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_STUDENT')")
     public ResponseEntity<DocumentResponse> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(toResponse(documentService.getById(id)));
+        return ResponseEntity.ok(mapper.toResponse(documentService.getById(id)));
     }
 
     @GetMapping("/{id}/download")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_STUDENT')")
     public ResponseEntity<Resource> download(@PathVariable Long id) {
         DocumentDownload download = documentService.download(id);
+
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + download.fileName() + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + download.fileName() + "\"")
                 .body(download.resource());
-    }
-
-    private DocumentResponse toResponse(Document document) {
-        return DocumentResponse.builder()
-                .id(document.getId())
-                .title(document.getTitle())
-                .author(document.getAuthor())
-                .degree(document.getDegree())
-                .defenseDate(document.getDefenseDate())
-                .sourceId(document.getSourceId())
-                .fileName(document.getFileName())
-                .downloadUrl("/v1/documents/" + document.getId() + "/download")
-                .size(document.getSize())
-                .build();
     }
 }

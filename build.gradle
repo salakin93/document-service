@@ -42,8 +42,6 @@ dependencies {
 
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
 	implementation 'org.springframework.boot:spring-boot-starter-data-elasticsearch'
-
-	// Apache Tika para extraer texto de PDFs, DOCX, imágenes OCR, etc.
 	implementation 'org.apache.tika:tika-core:2.9.2'
 	implementation 'org.apache.tika:tika-parsers-standard-package:2.9.2'
 

@@ -1,7 +1,10 @@
 package edu.usip.document.service;
 
 import edu.usip.document.api.dto.request.DocumentUploadRequest;
-import edu.usip.document.api.dto.response.DocumentSearchResponse;
+import edu.usip.document.api.error.DocumentNotFoundException;
+import edu.usip.document.api.error.DuplicateSourceIdException;
+import edu.usip.document.api.error.FileAccessException;
+import edu.usip.document.api.error.FileSizeExceededException;
 import edu.usip.document.domain.Document;
 import edu.usip.document.dto.records.DocumentDownload;
 import edu.usip.document.repo.DocumentRepository;
@@ -27,28 +30,20 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DocumentService {
 
+    private static final long MAX_FILE_SIZE_BYTES = 35L * 1024 * 1024;
+
     private final DocumentRepository documentRepository;
     private final FileStorageService storageService;
     private final DocumentIndexingJob indexingJob;
 
     @Transactional
     public Document upload(DocumentUploadRequest request, MultipartFile file) throws IOException {
-        if (file.getSize() > 35 * 1024 * 1024) {
-            throw new RuntimeException("El archivo supera los 35MB");
-        }
+        validateFileSize(file);
 
-        String sourceId = (request.getSourceId() != null && !request.getSourceId().isBlank())
-                ? request.getSourceId()
-                : UUID.randomUUID().toString();
-
-        documentRepository.findBySourceId(sourceId).ifPresent(d -> {
-            throw new RuntimeException("Ya existe un documento con sourceId=" + sourceId);
-        });
+        String sourceId = resolveSourceId(request.getSourceId());
+        validateUniqueSourceId(sourceId);
 
         String storagePath = storageService.storeFile(file, sourceId);
-
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String createdBy = auth != null ? auth.getName() : "system";
 
         Document document = Document.builder()
                 .title(request.getTitle())
@@ -59,110 +54,84 @@ public class DocumentService {
                 .fileName(file.getOriginalFilename())
                 .storagePath(storagePath)
                 .size(file.getSize())
-                .createdBy(createdBy)
+                .createdBy(resolveCurrentUsername())
                 .active(true)
                 .build();
 
         Document saved = documentRepository.save(document);
 
-        TransactionSynchronizationManager.registerSynchronization(
-                new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        indexingJob.indexAsync(saved, storagePath);
-                    }
-                }
-        );
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                indexingJob.indexAsync(saved, storagePath);
+            }
+        });
 
         return saved;
     }
 
     @Transactional(readOnly = true)
     public Page<Document> search(String title, String author, String degree, Pageable pageable) {
-        Specification<Document> spec = Specification.where(DocumentSpecification.isActive());
+        Specification<Document> specification = Specification.where(DocumentSpecification.isActive());
 
         Specification<Document> titleSpec = DocumentSpecification.titleContains(title);
-        if (titleSpec != null) spec = spec.and(titleSpec);
+        if (titleSpec != null) {
+            specification = specification.and(titleSpec);
+        }
 
         Specification<Document> authorSpec = DocumentSpecification.authorContains(author);
-        if (authorSpec != null) spec = spec.and(authorSpec);
+        if (authorSpec != null) {
+            specification = specification.and(authorSpec);
+        }
 
         Specification<Document> degreeSpec = DocumentSpecification.degreeContains(degree);
-        if (degreeSpec != null) spec = spec.and(degreeSpec);
+        if (degreeSpec != null) {
+            specification = specification.and(degreeSpec);
+        }
 
-        return documentRepository.findAll(spec, pageable);
+        return documentRepository.findAll(specification, pageable);
     }
 
     @Transactional(readOnly = true)
     public Document getById(Long id) {
         return documentRepository.findByIdAndActiveTrue(id)
-                .orElseThrow(() -> new RuntimeException("Documento no encontrado"));
+                .orElseThrow(() -> new DocumentNotFoundException(id));
     }
 
     @Transactional(readOnly = true)
     public DocumentDownload download(Long id) {
-        Document doc = getById(id);
+        Document document = getById(id);
 
         try {
-            return new DocumentDownload(storageService.getFile(doc.getStoragePath()), doc.getFileName());
+            return new DocumentDownload(
+                    storageService.getFile(document.getStoragePath()),
+                    document.getFileName()
+            );
         } catch (IOException e) {
-            throw new RuntimeException("No se pudo leer el archivo", e);
+            throw new FileAccessException(document.getStoragePath(), e);
         }
     }
 
-    @Transactional(readOnly = true)
-    public Page<DocumentSearchResponse> searchFullText(String q, Pageable pageable) {
-        if (q == null || q.isBlank()) {
-            // fallback a tu búsqueda actual por createdAt
-            Page<Document> p = documentRepository.findAll(
-                    Specification.where(DocumentSpecification.isActive()), pageable);
-            return p.map(this::toSearchResponseNoSnippet);
+    private void validateFileSize(MultipartFile file) {
+        if (file.getSize() > MAX_FILE_SIZE_BYTES) {
+            throw new FileSizeExceededException(MAX_FILE_SIZE_BYTES);
         }
-
-        var hits = esService.search(q, pageable); // SearchHits<ElasticsearchDocument>
-
-        List<Long> ids = hits.stream().map(h -> h.getContent().getId()).toList();
-
-        // Trae de DB (mantener orden según score):
-        var docsById = documentRepository.findAllById(ids)
-                .stream().collect(java.util.stream.Collectors.toMap(Document::getId, d -> d));
-
-        List<DocumentSearchResponse> items = hits.getSearchHits().stream().map(hit -> {
-            var doc = docsById.get(hit.getContent().getId());
-            String snippet = hit.getHighlightFields().getOrDefault("content", List.of())
-                    .stream().findFirst().orElse(null);
-
-            return DocumentSearchResponse.builder()
-                    .id(doc.getId())
-                    .title(doc.getTitle())
-                    .author(doc.getAuthor())
-                    .degree(doc.getDegree())
-                    .defenseDate(doc.getDefenseDate())
-                    .sourceId(doc.getSourceId())
-                    .fileName(doc.getFileName())
-                    .downloadUrl("/v1/documents/" + doc.getId() + "/download")
-                    .size(doc.getSize())
-                    .snippet(snippet)
-                    .score(hit.getScore() == null ? 0f : hit.getScore().floatValue())
-                    .build();
-        }).toList();
-
-        return new org.springframework.data.domain.PageImpl<>(items, pageable, hits.getTotalHits());
     }
 
-    private DocumentSearchResponse toSearchResponseNoSnippet(Document d) {
-        return DocumentSearchResponse.builder()
-                .id(d.getId())
-                .title(d.getTitle())
-                .author(d.getAuthor())
-                .degree(d.getDegree())
-                .defenseDate(d.getDefenseDate())
-                .sourceId(d.getSourceId())
-                .fileName(d.getFileName())
-                .downloadUrl("/v1/documents/" + d.getId() + "/download")
-                .size(d.getSize())
-                .snippet(null)
-                .score(0f)
-                .build();
+    private String resolveSourceId(String sourceId) {
+        return (sourceId != null && !sourceId.isBlank())
+                ? sourceId
+                : UUID.randomUUID().toString();
+    }
+
+    private void validateUniqueSourceId(String sourceId) {
+        if (documentRepository.findBySourceId(sourceId).isPresent()) {
+            throw new DuplicateSourceIdException(sourceId);
+        }
+    }
+
+    private String resolveCurrentUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication != null ? authentication.getName() : "system";
     }
 }

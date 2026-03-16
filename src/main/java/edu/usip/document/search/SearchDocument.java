@@ -7,12 +7,13 @@ import org.springframework.data.elasticsearch.annotations.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Getter @Setter
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(indexName = "documents")
-public class ElasticsearchDocument {
+public class SearchDocument {
 
     @Id
     private Long id;
@@ -27,7 +28,7 @@ public class ElasticsearchDocument {
     private String degree;
 
     @Field(type = FieldType.Text, analyzer = "spanish_asciifolding")
-    private String content; // texto extraído del PDF
+    private String content;
 
     @Field(type = FieldType.Date)
     private LocalDate defenseDate;
