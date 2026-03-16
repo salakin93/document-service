@@ -2,6 +2,7 @@ package edu.usip.document.api;
 
 import edu.usip.document.api.dto.request.DocumentUploadRequest;
 import edu.usip.document.api.dto.response.DocumentResponse;
+import edu.usip.document.api.dto.response.DocumentSearchResponse;
 import edu.usip.document.domain.Document;
 import edu.usip.document.dto.records.DocumentDownload;
 import edu.usip.document.service.DocumentService;
@@ -38,19 +39,15 @@ public class DocumentController {
         return ResponseEntity.ok(toResponse(document));
     }
 
-    @GetMapping
+    @GetMapping("/search")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN','ROLE_STUDENT')")
-    public ResponseEntity<Page<DocumentResponse>> search(
-            @RequestParam(required = false) String title,
-            @RequestParam(required = false) String author,
-            @RequestParam(required = false) String degree,
+    public ResponseEntity<Page<DocumentSearchResponse>> searchFullText(
+            @RequestParam String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size
     ) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
-        Page<DocumentResponse> response = documentService.search(title, author, degree, pageable)
-                .map(this::toResponse);
-        return ResponseEntity.ok(response);
+        Pageable pageable = PageRequest.of(page, size);
+        return ResponseEntity.ok(documentService.searchFullText(q, pageable));
     }
 
     @GetMapping("/{id}")

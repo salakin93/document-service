@@ -1,6 +1,7 @@
 package edu.usip.document.service;
 
 import edu.usip.document.api.dto.request.DocumentUploadRequest;
+import edu.usip.document.api.dto.response.DocumentSearchResponse;
 import edu.usip.document.domain.Document;
 import edu.usip.document.dto.records.DocumentDownload;
 import edu.usip.document.repo.DocumentRepository;
@@ -107,5 +108,61 @@ public class DocumentService {
         } catch (IOException e) {
             throw new RuntimeException("No se pudo leer el archivo", e);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public Page<DocumentSearchResponse> searchFullText(String q, Pageable pageable) {
+        if (q == null || q.isBlank()) {
+            // fallback a tu búsqueda actual por createdAt
+            Page<Document> p = documentRepository.findAll(
+                    Specification.where(DocumentSpecification.isActive()), pageable);
+            return p.map(this::toSearchResponseNoSnippet);
+        }
+
+        var hits = esService.search(q, pageable); // SearchHits<ElasticsearchDocument>
+
+        List<Long> ids = hits.stream().map(h -> h.getContent().getId()).toList();
+
+        // Trae de DB (mantener orden según score):
+        var docsById = documentRepository.findAllById(ids)
+                .stream().collect(java.util.stream.Collectors.toMap(Document::getId, d -> d));
+
+        List<DocumentSearchResponse> items = hits.getSearchHits().stream().map(hit -> {
+            var doc = docsById.get(hit.getContent().getId());
+            String snippet = hit.getHighlightFields().getOrDefault("content", List.of())
+                    .stream().findFirst().orElse(null);
+
+            return DocumentSearchResponse.builder()
+                    .id(doc.getId())
+                    .title(doc.getTitle())
+                    .author(doc.getAuthor())
+                    .degree(doc.getDegree())
+                    .defenseDate(doc.getDefenseDate())
+                    .sourceId(doc.getSourceId())
+                    .fileName(doc.getFileName())
+                    .downloadUrl("/v1/documents/" + doc.getId() + "/download")
+                    .size(doc.getSize())
+                    .snippet(snippet)
+                    .score(hit.getScore() == null ? 0f : hit.getScore().floatValue())
+                    .build();
+        }).toList();
+
+        return new org.springframework.data.domain.PageImpl<>(items, pageable, hits.getTotalHits());
+    }
+
+    private DocumentSearchResponse toSearchResponseNoSnippet(Document d) {
+        return DocumentSearchResponse.builder()
+                .id(d.getId())
+                .title(d.getTitle())
+                .author(d.getAuthor())
+                .degree(d.getDegree())
+                .defenseDate(d.getDefenseDate())
+                .sourceId(d.getSourceId())
+                .fileName(d.getFileName())
+                .downloadUrl("/v1/documents/" + d.getId() + "/download")
+                .size(d.getSize())
+                .snippet(null)
+                .score(0f)
+                .build();
     }
 }

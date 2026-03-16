@@ -1,12 +1,18 @@
 package edu.usip.document.api.dto.response;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDate;
 
+
 @Getter
-@Builder
+@SuperBuilder
+@NoArgsConstructor
+@AllArgsConstructor
 public class DocumentResponse {
 
     private Long id;
