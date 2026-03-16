@@ -1,19 +1,17 @@
 package edu.usip.document.api.dto.response;
 
 import lombok.AllArgsConstructor;
-import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
 import java.time.LocalDate;
 
-
 @Getter
 @SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DocumentResponse {
+public class DocumentSearchResponse {
 
     private Long id;
     private String degree;
@@ -24,4 +22,6 @@ public class DocumentResponse {
     private String fileName;
     private String downloadUrl;
     private long size;
+    private String snippet;
+    private float score;
 }
