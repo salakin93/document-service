@@ -2,6 +2,7 @@ package edu.usip.document.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -41,9 +42,9 @@ public class SecurityConfig {
     }
 
     @Bean
-    JwtDecoder jwtDecoder() {
+    JwtDecoder jwtDecoder(@Value("${security.jwt.public-key-path:public.pem}") String publicKeyPath) {
         try {
-            String pem = Files.readString(Path.of("public.pem").toAbsolutePath().normalize());
+            String pem = Files.readString(Path.of(publicKeyPath).toAbsolutePath().normalize());
             String clean = pem.replace("-----BEGIN PUBLIC KEY-----", "")
                     .replace("-----END PUBLIC KEY-----", "")
                     .replaceAll("\\s", "");

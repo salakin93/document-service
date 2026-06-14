@@ -27,7 +27,6 @@ public class ElasticsearchDocumentService {
                         .must(m -> m.multiMatch(mm -> mm
                                 .query(queryText)
                                 .fields("title^4", "author^3", "degree^2", "content")
-                                .fuzziness("AUTO")
                         ))
                         .filter(f -> f.term(t -> t.field("active").value(true)))
                 ))

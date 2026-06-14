@@ -57,10 +57,10 @@ public class DocumentSearchService {
                     String snippet = null;
                     List<String> highlights = hit.getHighlightFields().get("content");
                     if (highlights != null && !highlights.isEmpty()) {
-                        snippet = highlights.get(0);
+                        snippet = highlights.getFirst();
                     }
 
-                    float score = hit.getScore() == null ? 0f : hit.getScore().floatValue();
+                    float score = hit.getScore();
 
                     return mapper.toSearchResponse(document, snippet, score);
                 })

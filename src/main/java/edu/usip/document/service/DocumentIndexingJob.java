@@ -34,7 +34,7 @@ public class DocumentIndexingJob {
                     .author(document.getAuthor())
                     .degree(document.getDegree())
                     .defenseDate(document.getDefenseDate())
-                    .createdAt(document.getCreatedAt())
+                    .createdAt(document.getCreatedAt().toLocalDate())
                     .active(document.isActive())
                     .content(content)
                     .build();
